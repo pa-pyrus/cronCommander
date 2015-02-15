@@ -36,7 +36,7 @@ if "DBG_CRON_COMMANDER" in environ:
     logger.debug("Enabled debug output")
 
 logger.info("Spawning processes...")
-with ProcessPoolExecutor() as executor:
+with ProcessPoolExecutor(max_workers=1) as executor:
     futures = {"pastats": executor.submit(pastats.update),
                "uberent": executor.submit(uberent.update),
                "leaders": executor.submit(leaders.update),
