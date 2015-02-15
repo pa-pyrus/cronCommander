@@ -44,6 +44,6 @@ with ProcessPoolExecutor(max_workers=1) as executor:
 
 # wait for all processes
 logger.info("Waiting for processes...")
-wait(futures.values())
+wait(futures.values(), timeout=120)
 logger.info("Processes finished...")
 logger.info("Exiting...")
