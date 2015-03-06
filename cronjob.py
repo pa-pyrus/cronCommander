@@ -8,7 +8,7 @@ Copyright (c) 2015 Pyrus <pyrus at coffee dash break dot at>
 See the file LICENSE for copying permission.
 """
 
-from concurrent.futures import ProcessPoolExecutor, wait
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import environ
 
 import logging
@@ -42,8 +42,17 @@ with ProcessPoolExecutor(max_workers=1) as executor:
                "leaders": executor.submit(leaders.update),
                "tourney": executor.submit(tourney.update)}
 
-# wait for all processes
-logger.info("Waiting for processes...")
-wait(futures.values(), timeout=120)
+    # wait for all processes
+    logger.info("Waiting for processes...")
+    for done in as_completed(futures.values()):
+        for key, value in futures.items():
+            if value is done:
+                pname = key
+
+        try:
+            done.result()
+        except Exception:
+            logger.exception("Process %s raised an exception.", pname)
+
 logger.info("Processes finished...")
 logger.info("Exiting...")
