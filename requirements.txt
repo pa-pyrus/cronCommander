@@ -1,2 +1,2 @@
-mpmath>=0.19
-trueskill>=0.4.3
+mpmath==0.19
+trueskill==0.4.3
