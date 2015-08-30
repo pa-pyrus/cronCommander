@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 
 # Distribution / packaging
-env/
+venv/
 
 # Environment file
 .env
