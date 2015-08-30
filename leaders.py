@@ -19,6 +19,74 @@ from database.models import LeaderBoardEntry, UberAccount
 
 LASTMATCH_FORMAT = "%Y-%m-%d %H:%M:%SZ"
 UBERENT_HOSTNAME = "4.uberent.com"
+GAME_TYPES = {"Vanilla": "Ladder1v1", "Titans": "PAExpansion1:Ladder1v1"}
+LEAGUES = {"Uber": 1, "Platinum": 2, "Gold": 3, "Silver": 4, "Bronze": 5}
+
+
+def update_leaderboard(game, league, ticket, session):
+    logger = getLogger("cronjob.leaders")
+    logger.info("Updating {0} league for {1}...".format(league, game))
+
+    game_type = GAME_TYPES[game]
+    league_id = LEAGUES[league]
+
+    url = ("/MatchMaking/GetRankLeaderboard?TitleId=4"
+           "&GameType={0}&Rank={1}").format(game_type, league_id)
+    logger.debug("Using URL {0}".format(url))
+
+    connection = HTTPSConnection(UBERENT_HOSTNAME)
+    connection.request("GET", url)
+
+    # exceptions are propagated
+    response = connection.getresponse()
+    raw_data = response.read()
+    leaderboard = loads(str(raw_data, "utf-8"))
+
+    entries = leaderboard["LeaderboardEntries"]
+
+    # we need to update uberaccounts first
+    logger.info("Updating UberAccounts...")
+    uberids = [entry["UberId"] for entry in entries]
+
+    query = "&UberIds=".join(uberids)
+    url = "/GameClient/UserNames?UberIds=" + query
+
+    connection.request("GET", url, headers={"X-Authorization": ticket})
+    response = connection.getresponse()
+    raw_data = response.read()
+    usernames = loads(str(raw_data, "utf-8"))
+    uberusers = usernames["Users"]
+    for uid, names in uberusers.items():
+        uname = names["UberName"]
+        dname = names["TitleDisplayName"]
+
+        uberaccount = UberAccount(uname, uid, dname, None)
+
+        # while we're at it, query pastats ID
+        request = Request("http://pastats.com/report/"
+                          "getplayerid?ubername={0}".format(uname))
+
+        # exceptions are propagated
+        with urlopen(request) as response:
+            raw_data = response.read()
+
+            pid = loads(str(raw_data, "utf-8"))
+            if pid != -1:
+                uberaccount.pid = pid
+                logger.debug("Added PAStats ID for "
+                             "UberAccount: {0}".format(uberaccount))
+
+        session.merge(uberaccount)
+
+    for rank in range(len(entries)):
+        lbentry = entries[rank]
+        last_match = datetime.strptime(
+            lbentry["LastMatchAt"], LASTMATCH_FORMAT)
+        dbentry = LeaderBoardEntry(
+            game, league, rank + 1, lbentry["UberId"], last_match)
+
+        # insert or update entry
+        session.merge(dbentry)
 
 
 def update():
@@ -50,66 +118,9 @@ def update():
     session = Session()
 
     logger.info("Requesting Leaderboard entries...")
-    leagues = {"Uber": 1, "Platinum": 2, "Gold": 3, "Silver": 4, "Bronze": 5}
-    for league_name, league_id in leagues.items():
-        logger.info("Updating {0} league...".format(league_name))
-        url = ("/MatchMaking/GetRankLeaderboard"
-               "?GameType=Ladder1v1&TitleId=4"
-               "&Rank=" + str(league_id))
-
-        connection.request("GET", url)
-
-        # exceptions are propagated
-        response = connection.getresponse()
-        raw_data = response.read()
-        leaderboard = loads(str(raw_data, "utf-8"))
-
-        # add those to the database
-        entries = leaderboard["LeaderboardEntries"]
-
-        # we need to update uberaccounts first
-        logger.info("Updating UberAccounts...")
-        uberids = [entry["UberId"] for entry in entries]
-
-        query = "&UberIds=".join(uberids)
-        url = "/GameClient/UserNames?UberIds=" + query
-
-        connection.request("GET", url, headers={"X-Authorization": ticket})
-        response = connection.getresponse()
-        raw_data = response.read()
-        usernames = loads(str(raw_data, "utf-8"))
-        uberusers = usernames["Users"]
-        for uid, names in uberusers.items():
-            uname = names["UberName"]
-            dname = names["TitleDisplayName"]
-
-            uberaccount = UberAccount(uname, uid, dname, None)
-
-            # while we're at it, query pastats ID
-            request = Request("http://pastats.com/report/"
-                              "getplayerid?ubername={0}".format(uname))
-
-            # exceptions are propagated
-            with urlopen(request) as response:
-                raw_data = response.read()
-
-                pid = loads(str(raw_data, "utf-8"))
-                if pid != -1:
-                    uberaccount.pid = pid
-                    logger.debug("Added PAStats ID for "
-                                 "UberAccount: {0}".format(uberaccount))
-
-            session.merge(uberaccount)
-
-        for rank in range(len(entries)):
-            lbentry = entries[rank]
-            last_match = datetime.strptime(
-                lbentry["LastMatchAt"], LASTMATCH_FORMAT)
-            dbentry = LeaderBoardEntry(
-                league_name, rank + 1, lbentry["UberId"], last_match)
-
-            # insert or update entry
-            session.merge(dbentry)
+    for game in GAME_TYPES.keys():
+        for league in LEAGUES.keys():
+            update_leaderboard(game, league, ticket, session)
 
     session.commit()
     session.close()
