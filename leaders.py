@@ -55,6 +55,12 @@ def update_leaderboard(game, league, ticket, session):
     response = connection.getresponse()
     raw_data = response.read()
     usernames = loads(str(raw_data, "utf-8"))
+    if "Users" not in usernames:
+        logger.error(
+                "Could not retrieve UserNames while updating {0} league"
+                "for {1}".format(league, game))
+        return
+
     uberusers = usernames["Users"]
     for uid, names in uberusers.items():
         uname = names["UberName"]
